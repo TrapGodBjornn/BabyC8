@@ -1,5 +1,5 @@
 #define _XOPEN_SOURCE 500 // needed for sbrk() on cslab
-
+#include <stddef.h>
 #include <unistd.h>
 
 typedef struct freenode
@@ -10,54 +10,76 @@ typedef struct freenode
 
 #define HEAP_CHUNK_SIZE 4096
 
-// head node for the freelist
 freenode *freelist = NULL;
 
-/* allocate size bytes from the heap */
 void *malloc(size_t size)
 {
-    // can't have less than 1 byte requested
-    if (size < 1)
+	if (size < 1)
     {
-        return NULL;
+		return NULL;
     }
 
-    // add 8 bytes for bookkeeping
-    size += 8;
+	size += 8;
 
-    // 32 bytes is the minimum allocation
-    if (size < 32)
+	if (size < 32)
     {
-        size = 32;
+		size = 32;
     }
 
-    // round up to the nearest 16-byte multiple
-    else if (size%16 != 0)
+	else if (size%16 != 0)
     {
-        size = ((size/16)+1)*16;
+		size = ((size/16)+1)*16;
     }
 
-    // if we have no memory, grab one chunk to start
+	freenode *prev_node = NULL;
+	freenode *current_node = freelist;
+
+	while (current_node != NULL) {
+		if (current_node->size >= size) {
+			break;
+		}
+		prev_node = current_node;
+		current_node = current_node->next;
+	}
+	if (current_node == NULL){
+		current_node= (freenode *)sbrk(HEAP_CHUNK_SIZE);
+		if (current_node == (void *)-1){
+			return NULL;
+		}
+		current_node->size = HEAP_CHUNK_SIZE;
+		current_node->next= NULL;
+	}
+	
+	size_t remaining_size= current_node->size - size;
+	void *return_address= (char *) current_node + 8;
+
+	if (remaining_size< 32){
+		if (prev_node) {
+			prev_node->next= current_node->next;
+		} else {
+			freelist= current_node -> next;
+		}
+		}
+	else{ 
+		freenode *new_node= (freenode *)((char *)current_node + size);
+		new_node->size= remaining_size;
+		new_node->next= current_node->next;
+
+		if (prev_node) {
+			prev_node->next= new_node;
+		} else {
+			freelist= new_node;
+		}
+	}
+	
+	*((size_t *)current_node)= size - 8;
+
+	return return_address;
+	}
+   
 
 
-    // look for a freenode that's large enough for this request
-    // have to track the previous node also for list manipulation later
 
-
-    // if there is no freenode that's large enough, allocate more memory
-
-
-    // here, should have a freenode with enough space for the request
-    // - if there would be less than 32 bytes left, then return the entire chunk
-    // - if there are remaining bytes, then break up the chunk into two pieces
-    //     return the front of this memory chunk to the user
-    //     and put the rest into the freelist 
-
-
-    // here, get the address for the chunk being returned to the user and return it
-}
-
-/* return a previously allocated memory chunk to the allocator */
 void free(void *ptr)
 {
     if (ptr == NULL)
@@ -65,12 +87,9 @@ void free(void *ptr)
         return;
     }
 
-    // make a new freenode starting 8 bytes before the provided address
     freenode *new_node = (freenode *)(ptr-8);
 
-    // the size is already in memory at the right location (ptr-8)
-
-    // add this memory chunk back to the beginning of the freelist
+   
     new_node->next = freelist;
     freelist = new_node;
 
